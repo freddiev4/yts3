@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use log::info;
+use rayon::prelude::*;
 
 use crate::config::{self, Yts3Config};
 use crate::video::dct::DctTables;
@@ -63,18 +64,45 @@ impl VideoDecoder {
         let stdout = child.stdout.as_mut().unwrap();
         let frame_size = self.width as usize * self.height as usize;
         let mut all_data = Vec::new();
-        let mut frame_buf = vec![0u8; frame_size];
         let mut frame_count = 0u64;
 
+        // Read frames in batches from ffmpeg (I/O must be sequential) and extract
+        // bits from each batch in parallel. Batch size matches the rayon thread pool
+        // so all cores stay busy while we keep memory bounded to `threads * frame_size`.
+        let batch_size = rayon::current_num_threads();
+        let mut batch: Vec<Vec<u8>> = Vec::with_capacity(batch_size);
+
         loop {
+            let mut frame_buf = vec![0u8; frame_size];
             match read_exact_or_eof(stdout, &mut frame_buf) {
                 Ok(true) => {
-                    let frame_data = self.extract_frame(&frame_buf);
-                    all_data.extend_from_slice(&frame_data);
+                    batch.push(frame_buf);
                     frame_count += 1;
+
+                    if batch.len() >= batch_size {
+                        let extracted: Vec<Vec<u8>> = batch
+                            .par_iter()
+                            .map(|f| self.extract_frame(f))
+                            .collect();
+                        for frame_data in extracted {
+                            all_data.extend_from_slice(&frame_data);
+                        }
+                        batch.clear();
+                    }
                 }
                 Ok(false) => break, // EOF
                 Err(e) => return Err(e.into()),
+            }
+        }
+
+        // Process any remaining frames in the last (partial) batch
+        if !batch.is_empty() {
+            let extracted: Vec<Vec<u8>> = batch
+                .par_iter()
+                .map(|f| self.extract_frame(f))
+                .collect();
+            for frame_data in extracted {
+                all_data.extend_from_slice(&frame_data);
             }
         }
 
