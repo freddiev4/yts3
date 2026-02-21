@@ -3,6 +3,7 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 use log::info;
+use rayon::prelude::*;
 
 use crate::config::{self, Yts3Config};
 use crate::video::dct::DctTables;
@@ -57,6 +58,10 @@ impl VideoEncoder {
             self.fps
         );
 
+        // Scale FFV1 slice count to available threads for better intra-frame parallelism
+        // inside ffmpeg. Clamped to 16 (a reasonable FFV1 upper bound).
+        let ffv1_slices = rayon::current_num_threads().min(16).to_string();
+
         let mut child = Command::new("ffmpeg")
             .args([
                 "-y",
@@ -75,7 +80,7 @@ impl VideoEncoder {
                 "-level",
                 "3",
                 "-slices",
-                "4",
+                &ffv1_slices,
                 "-slicecrc",
                 "1",
                 output_path,
@@ -88,19 +93,33 @@ impl VideoEncoder {
 
         let stdin = child.stdin.as_mut().unwrap();
 
-        for frame_idx in 0..num_frames {
-            let data_offset = frame_idx * self.bytes_per_frame;
-            let data_end = (data_offset + self.bytes_per_frame).min(packet_data.len());
-            let frame_data = if data_offset < packet_data.len() {
-                &packet_data[data_offset..data_end]
-            } else {
-                &[]
-            };
+        // Render frames in parallel batches, then write each batch to ffmpeg in order.
+        // Batch size matches the rayon thread pool so we keep all cores busy without
+        // holding more than `threads * frame_size` bytes of rendered pixel data at once.
+        let batch_size = rayon::current_num_threads();
+        let mut frame_idx = 0;
+        while frame_idx < num_frames {
+            let batch_end = (frame_idx + batch_size).min(num_frames);
+            let frames: Vec<Vec<u8>> = (frame_idx..batch_end)
+                .into_par_iter()
+                .map(|idx| {
+                    let data_offset = idx * self.bytes_per_frame;
+                    let data_end = (data_offset + self.bytes_per_frame).min(packet_data.len());
+                    let frame_data = if data_offset < packet_data.len() {
+                        &packet_data[data_offset..data_end]
+                    } else {
+                        &[]
+                    };
+                    self.render_frame(frame_data)
+                })
+                .collect();
 
-            let frame_pixels = self.render_frame(frame_data);
-            stdin
-                .write_all(&frame_pixels)
-                .context("failed to write frame data to ffmpeg")?;
+            for frame_pixels in &frames {
+                stdin
+                    .write_all(frame_pixels)
+                    .context("failed to write frame data to ffmpeg")?;
+            }
+            frame_idx = batch_end;
         }
 
         drop(child.stdin.take());
