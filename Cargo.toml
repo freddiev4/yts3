@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "YouTube as S3 — encode arbitrary files into lossless video for cloud storage"
 license = "MIT"
+repository = "https://github.com/freddiev4/yts3"
+keywords = ["video", "steganography", "ffmpeg", "encoding", "storage"]
+categories = ["command-line-utilities", "multimedia::video", "cryptography"]
 
 [dependencies]
 # CLI
