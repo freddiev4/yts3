@@ -33,31 +33,33 @@ cargo build --release
 
 ## Usage
 
-### Encode a file into video
+### CLI
+
+#### Encode a file into video
 
 ```bash
 yts3 encode --input myfile.zip --output encoded.mkv
 ```
 
-### Encode with encryption
+#### Encode with encryption
 
 ```bash
 yts3 encode --input myfile.zip --output encoded.mkv --password "my secret"
 ```
 
-### Decode a video back to file
+#### Decode a video back to file
 
 ```bash
 yts3 decode --input encoded.mkv --output recovered.zip
 ```
 
-### Decode with password
+#### Decode with password
 
 ```bash
 yts3 decode --input encoded.mkv --output recovered.zip --password "my secret"
 ```
 
-### Custom parameters
+#### Custom parameters
 
 ```bash
 yts3 encode \
@@ -73,6 +75,88 @@ yts3 encode \
 ```
 
 > When decoding, `--width`, `--height`, `--bits-per-block`, and `--coefficient-strength` must match the values used during encoding.
+
+### API
+
+Add yts3 as a dependency in your `Cargo.toml`:
+
+```toml
+[dependencies]
+yts3 = { git = "https://github.com/freddiev4/yts3" }
+```
+
+#### Encode and decode a file
+
+```rust
+use std::path::Path;
+use yts3::{encode_file, decode_file, Yts3Config};
+
+let cfg = Yts3Config::default();
+
+encode_file(Path::new("input.txt"), "encoded.mkv", Some("my-password"), &cfg)?;
+decode_file("encoded.mkv", Path::new("output.txt"), Some("my-password"), &cfg)?;
+```
+
+#### Roundtrip with a custom hook
+
+Implement `PipelineHook` to inject logic between encode and decode — for example
+uploading the video to YouTube and downloading it back before decoding:
+
+```rust
+use std::path::{Path, PathBuf};
+use anyhow::Result;
+use yts3::{roundtrip, PipelineHook, Yts3Config};
+
+struct YoutubeHook;
+
+impl PipelineHook for YoutubeHook {
+    fn after_encode(&self, encoded_path: &Path) -> Result<PathBuf> {
+        // upload encoded_path to YouTube ...
+        let video_id = youtube_upload(encoded_path)?;
+
+        // download it back to a local file ...
+        let downloaded = youtube_download(&video_id, "downloaded.mkv")?;
+
+        Ok(PathBuf::from(downloaded))
+    }
+}
+
+let cfg = Yts3Config::default();
+let result = roundtrip(
+    Path::new("input.txt"),
+    "encoded.mkv",
+    Path::new("output.txt"),
+    Some("my-password"),
+    &cfg,
+    &YoutubeHook,
+)?;
+
+if result.matched {
+    println!("round-trip OK: {}", result.original_hash);
+} else {
+    eprintln!("hash mismatch: {} != {}", result.original_hash, result.decoded_hash);
+}
+```
+
+#### Roundtrip with no intermediate steps
+
+Use `NoopHook` to skip the hook entirely:
+
+```rust
+use std::path::Path;
+use yts3::{roundtrip, NoopHook, Yts3Config};
+
+let result = roundtrip(
+    Path::new("input.txt"),
+    "encoded.mkv",
+    Path::new("output.txt"),
+    Some("my-password"),
+    &Yts3Config::default(),
+    &NoopHook,
+)?;
+
+assert!(result.matched);
+```
 
 ## Architecture
 
