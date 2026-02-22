@@ -1,18 +1,14 @@
-mod chunker;
-mod config;
-mod crypto;
-mod fountain;
-mod integrity;
-mod packet;
-mod pipeline;
-mod video;
-
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use config::Yts3Config;
+use yts3::config::{
+    DEFAULT_BITS_PER_BLOCK, DEFAULT_CHUNK_SIZE, DEFAULT_COEFFICIENT_STRENGTH,
+    DEFAULT_FPS, DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH, DEFAULT_REPAIR_OVERHEAD,
+};
+use yts3::pipeline;
+use yts3::Yts3Config;
 
 /// yts3 — YouTube as S3: encode arbitrary files into lossless video for cloud storage.
 #[derive(Parser)]
@@ -39,31 +35,31 @@ enum Commands {
         password: Option<String>,
 
         /// Frame width (default: 3840)
-        #[arg(long, default_value_t = config::DEFAULT_FRAME_WIDTH)]
+        #[arg(long, default_value_t = DEFAULT_FRAME_WIDTH)]
         width: u32,
 
         /// Frame height (default: 2160)
-        #[arg(long, default_value_t = config::DEFAULT_FRAME_HEIGHT)]
+        #[arg(long, default_value_t = DEFAULT_FRAME_HEIGHT)]
         height: u32,
 
         /// Frames per second (default: 30)
-        #[arg(long, default_value_t = config::DEFAULT_FPS)]
+        #[arg(long, default_value_t = DEFAULT_FPS)]
         fps: u32,
 
         /// Bits embedded per 8x8 block (default: 1)
-        #[arg(long, default_value_t = config::DEFAULT_BITS_PER_BLOCK)]
+        #[arg(long, default_value_t = DEFAULT_BITS_PER_BLOCK)]
         bits_per_block: usize,
 
         /// DCT coefficient strength (default: 150.0)
-        #[arg(long, default_value_t = config::DEFAULT_COEFFICIENT_STRENGTH)]
+        #[arg(long, default_value_t = DEFAULT_COEFFICIENT_STRENGTH)]
         coefficient_strength: f64,
 
         /// Chunk size in bytes (default: 1048576)
-        #[arg(long, default_value_t = config::DEFAULT_CHUNK_SIZE)]
+        #[arg(long, default_value_t = DEFAULT_CHUNK_SIZE)]
         chunk_size: usize,
 
         /// Fountain code repair overhead as a fraction (default: 1.0 = 100%)
-        #[arg(long, default_value_t = config::DEFAULT_REPAIR_OVERHEAD)]
+        #[arg(long, default_value_t = DEFAULT_REPAIR_OVERHEAD)]
         repair_overhead: f64,
     },
 
@@ -82,19 +78,19 @@ enum Commands {
         password: Option<String>,
 
         /// Frame width (must match encoding)
-        #[arg(long, default_value_t = config::DEFAULT_FRAME_WIDTH)]
+        #[arg(long, default_value_t = DEFAULT_FRAME_WIDTH)]
         width: u32,
 
         /// Frame height (must match encoding)
-        #[arg(long, default_value_t = config::DEFAULT_FRAME_HEIGHT)]
+        #[arg(long, default_value_t = DEFAULT_FRAME_HEIGHT)]
         height: u32,
 
         /// Bits per block (must match encoding)
-        #[arg(long, default_value_t = config::DEFAULT_BITS_PER_BLOCK)]
+        #[arg(long, default_value_t = DEFAULT_BITS_PER_BLOCK)]
         bits_per_block: usize,
 
         /// DCT coefficient strength (must match encoding)
-        #[arg(long, default_value_t = config::DEFAULT_COEFFICIENT_STRENGTH)]
+        #[arg(long, default_value_t = DEFAULT_COEFFICIENT_STRENGTH)]
         coefficient_strength: f64,
     },
 }
