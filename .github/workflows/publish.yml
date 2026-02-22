@@ -9,6 +9,7 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
+    environment: rust-crates
     steps:
       - uses: actions/checkout@v4
 
